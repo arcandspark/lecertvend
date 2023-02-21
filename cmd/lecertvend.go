@@ -45,4 +45,16 @@ func main() {
 	remaining := notAfter.Sub(time.Now())
 	remDays := int(remaining.Hours() / 24)
 	fmt.Printf("Cert remaining days: %v\n", remDays)
+
+	secs, err := vcli.Logical().List("secret/metadata/omtweb/certs")
+	if err != nil {
+		log.Fatalf("error listing secrets metadata: %v\n")
+	}
+
+	for _, v := range secs.Data["keys"].([]interface{}) {
+		sv, ok := v.(string)
+		if ok {
+			fmt.Printf("Secret: %v\n", sv)
+		}
+	}
 }
