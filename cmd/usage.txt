@@ -37,4 +37,4 @@ lecertvend -vend -names www,. \
   -mount secret -prefix lecertmgmt/demoteam/example.com -cert www
 
 Renew all certs in the Vault for example.com:
-lecertvent -renew -mount secret -prefix lecertmgmt/demoteam
+lecertvend -renew -mount secret -prefix lecertmgmt/demoteam
