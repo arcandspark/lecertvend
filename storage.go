@@ -226,7 +226,7 @@ func decodeCerts(pemBytes []byte, certList []*x509.Certificate) ([]*x509.Certifi
 	}
 }
 
-// GetCerts returns parsed certificated from a secret in the vault.
+// GetCerts returns parsed certificates from a secret in the vault.
 //
 // The order of the returned slice will be such that the cert at index 0 will be the first
 // cert that appeared in the PEM data in the secret. Subsequent indexes will contain certs
