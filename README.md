@@ -49,7 +49,7 @@ data.
 Example structure:
     /lecertmgmt
         /example
-            cftoken
+            cftoken = { token: string }
             /example.com
                 www = { cert: PEM, key: PEM }
                 login
