@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/x509"
+	_ "embed"
 	"encoding/pem"
 	"fmt"
 	vault "github.com/hashicorp/vault/api"
@@ -10,8 +11,16 @@ import (
 	"time"
 )
 
+//go:embed usage.txt
+var usage string
+
 func main() {
-	fmt.Println("Cert vending machine")
+	// Invocation Modes:
+	// vend  - Issue a certificate for a particular DNS name, or renew it
+	// if it already exists and is aging
+	// renew - Examine each certificate in a vault prefix and renew it if it is aging
+
+	fmt.Println(usage)
 	cfg := vault.DefaultConfig()
 	vcli, err := vault.NewClient(cfg)
 	if err != nil {
