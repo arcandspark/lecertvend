@@ -32,9 +32,18 @@ The -prefix must consist of a path that contains at least one
 parent folder, and a folder for the domain for which certificates
 will be issued.
 
-The parent folder must contain a secret called "cftoken" with
-a key named "token". This will be used as the CloudFlare API
-token for solving DNS challenges.
+The parent folder must contain a secret called `lecertvend` which contains 
+credential information for CloudFlare and LetsEncrypt. This secret should 
+contain the following keys:
+
+  * `cfToken` - CloudFlare API token which can write DNS records in the 
+                domain for which certificates will be requested
+  * `contact` - The email address to use for a Let's Encrypt account
+  * `leKey` *(optional)* - The Let's Encrypt account private key.
+
+The `leKey` field does not need to be provided. If it does not exist, the 
+next run of lecertvend will generate a key and LE account and store the key 
+here.
 
 This structure helps facilitate Vault policies which offer
 access to issue and renew certs for a subset of the domains
@@ -49,12 +58,12 @@ data.
 Example structure:
     /lecertmgmt
         /example
-            cftoken = { token: string }
+            lecertvend = { cfToken: string, contact: email, leKey: string }
             /example.com
                 www = { cert: PEM, key: PEM }
                 login
         /someorg
-            cftoken
+            lecertvend
             /somesite.biz
                 bare
             /anotherdomain.info

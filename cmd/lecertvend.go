@@ -71,5 +71,4 @@ func main() {
 	remDays := int(remaining.Hours() / 24)
 	fmt.Printf("Cert remaining days: %v\n", remDays)
 
-	lecertvend.DeleteTXT(certStorage.CFToken(), "omt.cx.", "apitest")
 }

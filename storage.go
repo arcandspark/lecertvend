@@ -2,6 +2,9 @@ package lecertvend
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -14,6 +17,8 @@ type CertStorage struct {
 	mount   string
 	prefix  string
 	cfToken string
+	contact string
+	leKey   *ecdsa.PrivateKey
 }
 
 // domainFromPrefix will extract the DNS domain name from the Vault secret prefix
@@ -35,6 +40,39 @@ func domainFromPrefix(prefix string) (string, error) {
 	}
 
 	return domain, nil
+}
+
+func decodePEMECKey(pemData []byte) (*ecdsa.PrivateKey, error) {
+	if len(pemData) == 0 {
+		return nil, fmt.Errorf("pem data was empty")
+	}
+
+	b, _ := pem.Decode(pemData)
+	if b == nil {
+		return nil, fmt.Errorf("no PEM blocks in pemData, expected one for PRIVATE KEY")
+	}
+	if b.Type != "PRIVATE KEY" {
+		return nil, fmt.Errorf("first PEM block of type %v, expected type PRIVATE KEY", b.Type)
+	}
+
+	privKey, err := x509.ParseECPrivateKey(b.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing private key: %v", err)
+	}
+
+	return privKey, nil
+}
+
+func encodePEMECKey(key *ecdsa.PrivateKey) ([]byte, error) {
+	x509bytes, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling key: %v", err)
+	}
+	b := pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: x509bytes,
+	}
+	return pem.EncodeToMemory(&b), nil
 }
 
 // NewCertStorage creates a CertStorage with a configured backend, or
@@ -62,33 +100,66 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 	cs.mount = mount
 	cs.prefix = prefix
 
-	// Read the cftoken from the prefix path. Depending on if this is a vend or a
-	// renew, the cftoken secret will either be at the prefix location, or one level
+	// Read the lecertvend secret from the prefix path. Depending on if this is a vend or a
+	// renew, the lecertvend secret will either be at the prefix location, or one level
 	// above the prefix.
-	cfTokenPath := prefix + "/cftoken"
-	sec, err := cs.getSecret(cfTokenPath)
+	lecvPath := prefix + "/lecertvend"
+	sec, err := cs.getSecret(lecvPath)
 	if err != nil {
 		if strings.Count(prefix, "/") >= 1 {
 			lastSlashIdx := strings.LastIndex(prefix, "/")
 			parentPrefix := prefix[0:lastSlashIdx]
-			cfTokenPath = parentPrefix + "/cftoken"
-			sec, err = cs.getSecret(cfTokenPath)
+			lecvPath = parentPrefix + "/lecertvend"
+			sec, err = cs.getSecret(lecvPath)
 
 			if err != nil {
-				return cs, fmt.Errorf("unable to locate cftoken secret at %v or %v: %v", prefix, parentPrefix, err)
+				return cs, fmt.Errorf("unable to locate lecertvend secret at %v or %v: %v", prefix, parentPrefix, err)
 			}
 		}
 	}
 
-	// If we found a cftoken secret, validate the contents
-	cfToken, ok := sec.Data["token"].(string)
+	// If we found a lecertvend secret, validate the contents
+	cfToken, ok := sec.Data["cfToken"].(string)
 	if !ok {
-		return cs, fmt.Errorf("%v does not contain \"token\" key, or value is not a string", cfTokenPath)
+		return cs, fmt.Errorf("%v does not contain \"cfToken\" key, or value is not a string", lecvPath)
 	}
 	if len(cfToken) == 0 {
-		return cs, fmt.Errorf("token value from %v is empty", cfTokenPath)
+		return cs, fmt.Errorf("cfToken value from %v is empty", lecvPath)
 	}
 	cs.cfToken = cfToken
+
+	contact, ok := sec.Data["contact"].(string)
+	if !ok {
+		return cs, fmt.Errorf("%v does not contain \"contact\" key, or value is not a string", lecvPath)
+	}
+	if len(contact) == 0 {
+		return cs, fmt.Errorf("contact value from %v is empty", lecvPath)
+	}
+	cs.contact = contact
+
+	// leKey is optional, generate it if not present
+	leKey, ok := sec.Data["leKey"].(string)
+	if ok && len(leKey) > 0 {
+		cs.leKey, err = decodePEMECKey([]byte(leKey))
+		if err != nil {
+			return cs, fmt.Errorf("error decoding leKey value from %v: %v", lecvPath, err)
+		}
+	} else {
+		cs.leKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return cs, fmt.Errorf("error generating EC key: %v", err)
+		}
+		newKeyBytes, err := encodePEMECKey(cs.leKey)
+		if err != nil {
+			return cs, fmt.Errorf("generated new leKey, but failed to PEM encode it: %v", err)
+		}
+		err = cs.patchSecret(lecvPath, map[string]interface{}{
+			"leKey": string(newKeyBytes),
+		})
+		if err != nil {
+			return cs, fmt.Errorf("error updating secret with generated leKey: %v", err)
+		}
+	}
 
 	return cs, nil
 }
@@ -102,6 +173,14 @@ func (cs CertStorage) getSecret(path string) (*vault.KVSecret, error) {
 		return nil, fmt.Errorf("secret at %v is deleted", path)
 	}
 	return sec, nil
+}
+
+func (cs CertStorage) patchSecret(path string, newData map[string]interface{}) error {
+	_, err := cs.vcli.KVv2(cs.mount).Patch(context.Background(), path, newData)
+	if err != nil {
+		return fmt.Errorf("error updating secret at %v: %v", path, err)
+	}
+	return nil
 }
 
 // List lists the contents in a kv2 secret engine at the specified prefix
