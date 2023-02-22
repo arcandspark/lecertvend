@@ -1,5 +1,7 @@
 Usage: lecertvend <command> [args]
 
+Environment variables must be set for vault: VAULT_TOKEN, VAULT_ADDR
+
 Command is one of:
   -vend    Issues a certificate or renew it if it
            exists and is aging
@@ -7,25 +9,23 @@ Command is one of:
            and renew it if it is aging
 
 Common Options:
-  -mindays Renew an existing cert if it has fewer than this many
-           days of validity remaining. Default is 30
+  -mindays Renew an existing cert if it has fewer than this many days of
+           validity remaining. Default is 30
   -mount   Vault mount point for the secret engine, must be a kv2
-  -prefix  Path to cert secrets in the kv2 engine, do not include
-           the mount point, or the data/ prefix.
-           The last component of the prefix is presumed to be the
-           DNS domain name for which certs will be vended.
-  -cert    The secret name for the cert. This is usually the host
-           name, but is provided explicitly for clearer naming for
-           bare domain certs or certs with many SANs.
+  -prefix  Path to cert secrets in the kv2 engine, do not include the mount
+           point, or the data/ prefix.
+           The last component of the prefix is presumed to be the DNS domain
+           name for which certs will be vended.
+  -cert    The secret name for the cert. This is usually the host name, but is
+           provided explicitly for clearer naming for bare domain certs or
+           certs with many SANs.
 
 Options for -vend:
-  -names   A comma separated list of host names for which
-           to issue a certificate. All host names specified
-           will be SANs on the single new certificate.
-           The first name in the list will be the name of the
-           secret in the vault.
-           A dot (.) by itself is interpreted as a request to
-           issue the certificate for the bare DNS name.
+  -names   A comma separated list of host names for which to issue a
+           certificate. All host names specified will be SANs on the single new
+           certificate.
+           A dot (.) by itself is interpreted as a request to issue the
+           certificate for the bare DNS name.
 
 Options for -renew:
   None
