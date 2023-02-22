@@ -21,6 +21,18 @@ type CertStorage struct {
 	leKey   *ecdsa.PrivateKey
 }
 
+func (cs CertStorage) CFToken() string {
+	return cs.cfToken
+}
+
+func (cs CertStorage) Contact() string {
+	return cs.contact
+}
+
+func (cs CertStorage) LEKey() *ecdsa.PrivateKey {
+	return cs.leKey
+}
+
 // domainFromPrefix will extract the DNS domain name from the Vault secret prefix
 // provided by the caller. Minor validation is done to make sure it looks a little
 // like a DNS domain.
@@ -253,8 +265,4 @@ func (cs CertStorage) GetCerts(path string) ([]*x509.Certificate, error) {
 	}
 
 	return certList, nil
-}
-
-func (cs CertStorage) CFToken() string {
-	return cs.cfToken
 }
