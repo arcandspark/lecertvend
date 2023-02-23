@@ -33,27 +33,6 @@ func (cs CertStorage) LEKey() *ecdsa.PrivateKey {
 	return cs.leKey
 }
 
-// domainFromPrefix will extract the DNS domain name from the Vault secret prefix
-// provided by the caller. Minor validation is done to make sure it looks a little
-// like a DNS domain.
-func domainFromPrefix(prefix string) (string, error) {
-	prefixParts := strings.Split(prefix, "/")
-	prefixPartCount := len(prefixParts)
-	if prefixPartCount < 2 {
-		return "", fmt.Errorf("prefix expected to be at least two levels deep: example/example.com")
-	}
-
-	domain := prefixParts[prefixPartCount-1]
-	if len(domain) == 0 {
-		return "", fmt.Errorf("domain part of prefix is empty")
-	}
-	if !strings.ContainsAny(domain, ".") {
-		return "", fmt.Errorf("domain \"%v\" contains not dots, are you sure you own a TLD?", domain)
-	}
-
-	return domain, nil
-}
-
 func decodePEMECKey(pemData []byte) (*ecdsa.PrivateKey, error) {
 	if len(pemData) == 0 {
 		return nil, fmt.Errorf("pem data was empty")
@@ -85,6 +64,30 @@ func encodePEMECKey(key *ecdsa.PrivateKey) ([]byte, error) {
 		Bytes: x509bytes,
 	}
 	return pem.EncodeToMemory(&b), nil
+}
+
+type SecretGetError struct {
+	Inner    error
+	NotFound bool
+}
+
+func NewSecretGetError(err error) *SecretGetError {
+	sge := &SecretGetError{
+		Inner:    err,
+		NotFound: false,
+	}
+	if strings.Contains(err.Error(), "secret not found") {
+		sge.NotFound = true
+	}
+	return sge
+}
+
+func (e *SecretGetError) Error() string {
+	return e.Inner.Error()
+}
+
+func (e *SecretGetError) Unwrap() error {
+	return e.Inner
 }
 
 // NewCertStorage creates a CertStorage with a configured backend, or
@@ -179,10 +182,10 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 func (cs CertStorage) getSecret(path string) (*vault.KVSecret, error) {
 	sec, err := cs.vcli.KVv2(cs.mount).Get(context.Background(), path)
 	if err != nil {
-		return nil, err
+		return nil, NewSecretGetError(err)
 	}
 	if sec.Data == nil {
-		return nil, fmt.Errorf("secret at %v is deleted", path)
+		return nil, NewSecretGetError(fmt.Errorf("secret not found: secret at %v is deleted", path))
 	}
 	return sec, nil
 }
@@ -252,16 +255,16 @@ func (cs CertStorage) GetCerts(path string) ([]*x509.Certificate, error) {
 
 	sec, err := cs.getSecret(path)
 	if err != nil {
-		return nil, fmt.Errorf("error getting secret at %v: %v", path, err)
+		return nil, fmt.Errorf("error getting secret at %v: %w", path, err)
 	}
 	certPEM, err := getCertPEMString(sec)
 	if err != nil {
-		return nil, fmt.Errorf("error getting cert PEM data: %v", err)
+		return nil, fmt.Errorf("error getting cert PEM data: %w", err)
 	}
 
 	certList, err = decodeCerts([]byte(certPEM), certList)
 	if err != nil {
-		return nil, fmt.Errorf("error decoding certs at %v: %v", path, err)
+		return nil, fmt.Errorf("error decoding certs at %v: %w", path, err)
 	}
 
 	return certList, nil
