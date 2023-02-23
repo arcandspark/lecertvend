@@ -11,6 +11,10 @@ import (
 	"github.com/miekg/dns"
 )
 
+// This file was taken from https://github.com/caddyserver/certmagic/blob/v0.17.2/dnsutil.go
+// on 2023-02-22 and adapted to lecervend's needs with minimal modification.
+// The following attribution is from the original file fetched on that date:
+//
 // Code in this file adapted from go-acme/lego, July 2020:
 // https://github.com/go-acme/lego
 // by Ludovic Fernandez and Dominik Menke
