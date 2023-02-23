@@ -156,10 +156,18 @@ func (cs CertStorage) getSecret(path string) (*vault.KVSecret, error) {
 	return sec, nil
 }
 
+func (cs CertStorage) putSecret(path string, data map[string]interface{}) error {
+	_, err := cs.vcli.KVv2(cs.mount).Put(context.Background(), path, data)
+	if err != nil {
+		return fmt.Errorf("error setting secret at %v: %w", path, err)
+	}
+	return nil
+}
+
 func (cs CertStorage) patchSecret(path string, newData map[string]interface{}) error {
 	_, err := cs.vcli.KVv2(cs.mount).Patch(context.Background(), path, newData)
 	if err != nil {
-		return fmt.Errorf("error updating secret at %v: %v", path, err)
+		return fmt.Errorf("error updating secret at %v: %w", path, err)
 	}
 	return nil
 }
@@ -212,5 +220,8 @@ func (cs CertStorage) GetCerts(path string) ([]*x509.Certificate, error) {
 }
 
 func (cs CertStorage) PutCerts(path string, certPEM []byte, keyPem []byte) error {
-	return nil
+	return cs.putSecret(path, map[string]interface{}{
+		"cert": string(certPEM),
+		"key":  string(keyPem),
+	})
 }

@@ -80,7 +80,7 @@ func main() {
 	}
 
 	if vend {
-		err = lecv.Vend(prefix, secret, namesRaw)
+		err = lecv.Vend(mindays, prefix, secret, namesRaw)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -90,23 +90,55 @@ func main() {
 	os.Exit(0)
 }
 
-func (l LECertVend) Vend(prefix string, secret string, namesRaw string) error {
+// Vend ensures that the secret at prefix/secret contains a certificate and private key,
+// and that the certificate has at least mindays of validity.
+//
+// If there is a certificate at that secret path already, and it has >= mindays of validity,
+// that cert will not be updated. Otherwise, a new cert will be issued with all of namesRaw
+// as SANs on the new cert.
+//
+// **WARNING**, This function does not check to see that the requested names match the SANs
+// on an existing certificate. So, if the certificate exists and has >= mindays of
+// validity, but the SANs on the existing cert do not match the requested names, no
+// error will be indicated.
+func (l LECertVend) Vend(mindays int, prefix string, secret string, namesRaw string) error {
 	secPath := prefix + "/" + secret
-	fmt.Println(prefix)
-	fmt.Println(secPath)
-	_ /*certs*/, err := l.cs.GetCerts(secPath)
+	doIssue := false
+	certs, err := l.cs.GetCerts(secPath)
 	if err != nil {
 		var sge *lecertvend.SecretGetError
 		if errors.As(err, &sge) && sge.NotFound {
-			fmt.Printf("No existing cert at %v\n", secPath)
+			fmt.Printf("No existing cert at %v, issuing new...\n", secPath)
+			doIssue = true
 		} else {
 			return err
 		}
 	}
-	names := strings.Split(namesRaw, ",")
-	_, err = l.cvm.VendCert(names)
-	if err != nil {
-		return err
+
+	if certs != nil {
+		if len(certs) == 0 {
+			fmt.Printf("Secret exists at %v but contained no certs, issuing new...\n", secPath)
+			doIssue = true
+		} else {
+			remDays := lecertvend.CertValidDaysRemaining(certs[0])
+			if remDays < mindays {
+				fmt.Printf("Cert at %v has %v days validity remaining, less than requested %v, issuing new...\n",
+					secPath, remDays, mindays)
+				doIssue = true
+			} else {
+				fmt.Printf("Cert at %v has %v days validity remaining, taking no action.\n", secPath, remDays)
+			}
+		}
+	}
+
+	if doIssue {
+		names := strings.Split(namesRaw, ",")
+		ckp, err := l.cvm.VendCert(names)
+		if err != nil {
+			return err
+		}
+		l.cs.PutCerts(secPath, ckp.CertChainPEM, ckp.PrivKeyPEM)
+		fmt.Printf("Newly issued certificate and key written to %v\n", secPath)
 	}
 	return nil
 }

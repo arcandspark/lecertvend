@@ -53,18 +53,8 @@ type DNS01Solver struct {
 	// Default: 0 (no wait).
 	PropagationDelay time.Duration
 
-	// Maximum time to wait for temporary DNS record to appear.
-	// Set to -1 to disable propagation checks.
-	// Default: 2 minutes.
-	PropagationTimeout time.Duration
-
-	// Preferred DNS resolver(s) to use when doing DNS lookups.
-	Resolvers []string
-
-	// Override the domain to set the TXT record on. This is
-	// to delegate the challenge to a different domain. Note
-	// that the solver doesn't follow CNAME/NS record.
-	OverrideDomain string
+	// Zone name in which to create records
+	Zone string
 
 	// Remember DNS records while challenges are active; i.e.
 	// records we have presented and not yet cleaned up.
@@ -83,27 +73,29 @@ type DNS01Solver struct {
 
 // Present creates the DNS TXT record for the given ACME challenge.
 func (s *DNS01Solver) Present(ctx context.Context, challenge acme.Challenge) error {
-	dnsName := challenge.DNS01TXTRecordName()
-	if s.OverrideDomain != "" {
-		dnsName = s.OverrideDomain
+	if len(s.Zone) == 0 {
+		return fmt.Errorf("Zone property of DNS01Solver required")
 	}
-	keyAuth := challenge.DNS01KeyAuthorization()
+	if s.TTL == 0 {
+		s.TTL = 60 * time.Second
+	}
+	if s.PropagationDelay == 0 {
+		s.PropagationDelay = 30 * time.Second
+	}
 
-	zone, err := findZoneByFQDN(dnsName, recursiveNameservers(s.Resolvers))
-	if err != nil {
-		return fmt.Errorf("could not determine zone for domain %q: %v", dnsName, err)
-	}
+	dnsName := challenge.DNS01TXTRecordName()
+	keyAuth := challenge.DNS01KeyAuthorization()
 
 	rec := libdns.Record{
 		Type:  "TXT",
-		Name:  libdns.RelativeName(dnsName+".", zone),
+		Name:  libdns.RelativeName(dnsName+".", s.Zone),
 		Value: keyAuth,
 		TTL:   s.TTL,
 	}
 
-	results, err := s.DNSProvider.AppendRecords(ctx, zone, []libdns.Record{rec})
+	results, err := s.DNSProvider.AppendRecords(ctx, s.Zone, []libdns.Record{rec})
 	if err != nil {
-		return fmt.Errorf("adding temporary record for zone %q: %w", zone, err)
+		return fmt.Errorf("adding temporary record for zone %q: %w", s.Zone, err)
 	}
 	if len(results) != 1 {
 		return fmt.Errorf("expected one record, got %d: %v", len(results), results)
@@ -111,7 +103,7 @@ func (s *DNS01Solver) Present(ctx context.Context, challenge acme.Challenge) err
 
 	// remember the record and zone we got so we can clean up more efficiently
 	s.saveDNSPresentMemory(dnsPresentMemory{
-		dnsZone: zone,
+		dnsZone: s.Zone,
 		dnsName: dnsName,
 		rec:     results[0],
 	})
@@ -119,74 +111,14 @@ func (s *DNS01Solver) Present(ctx context.Context, challenge acme.Challenge) err
 	return nil
 }
 
-// Wait blocks until the TXT record created in Present() appears in
-// authoritative lookups, i.e. until it has propagated, or until
-// timeout, whichever is first.
 func (s *DNS01Solver) Wait(ctx context.Context, challenge acme.Challenge) error {
-	// if configured to, pause before doing propagation checks
-	// (even if they are disabled, the wait might be desirable on its own)
-	if s.PropagationDelay > 0 {
-		select {
-		case <-time.After(s.PropagationDelay):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	// skip propagation checks if configured to do so
-	if s.PropagationTimeout == -1 {
-		return nil
-	}
-
-	// prepare for the checks by determining what to look for
-	dnsName := challenge.DNS01TXTRecordName()
-	if s.OverrideDomain != "" {
-		dnsName = s.OverrideDomain
-	}
-	keyAuth := challenge.DNS01KeyAuthorization()
-
-	// timings
-	timeout := s.PropagationTimeout
-	if timeout == 0 {
-		timeout = defaultDNSPropagationTimeout
-	}
-	const interval = 2 * time.Second
-
-	// how we'll do the checks
-	resolvers := recursiveNameservers(s.Resolvers)
-
-	var err error
-	start := time.Now()
-	for time.Since(start) < timeout {
-		select {
-		case <-time.After(interval):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		var ready bool
-		ready, err = checkDNSPropagation(dnsName, keyAuth, resolvers)
-		if err != nil {
-			return fmt.Errorf("checking DNS propagation of %q: %w", dnsName, err)
-		}
-		if ready {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("timed out waiting for record to fully propagate; verify DNS provider configuration is correct - last error: %v", err)
+	_ = <-time.After(s.PropagationDelay)
+	return nil
 }
 
 // CleanUp deletes the DNS TXT record created in Present().
-//
-// We ignore the context because cleanup is often/likely performed after
-// a context cancellation, and properly-implemented DNS providers should
-// honor cancellation, which would result in cleanup being aborted.
-// Cleanup must always occur.
-func (s *DNS01Solver) CleanUp(_ context.Context, challenge acme.Challenge) error {
+func (s *DNS01Solver) CleanUp(ctx context.Context, challenge acme.Challenge) error {
 	dnsName := challenge.DNS01TXTRecordName()
-	if s.OverrideDomain != "" {
-		dnsName = s.OverrideDomain
-	}
 	keyAuth := challenge.DNS01KeyAuthorization()
 
 	// always forget about the record so we don't leak memory
@@ -203,12 +135,6 @@ func (s *DNS01Solver) CleanUp(_ context.Context, challenge acme.Challenge) error
 	// was canceled, and if so, any HTTP requests by this provider
 	// should fail if the provider is properly implemented
 	// (see issue #200)
-	timeout := s.PropagationTimeout
-	if timeout <= 0 {
-		timeout = defaultDNSPropagationTimeout
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	_, err = s.DNSProvider.DeleteRecords(ctx, memory.dnsZone, []libdns.Record{memory.rec})
 	if err != nil {
 		return fmt.Errorf("deleting temporary record for name %q in zone %q: %w", memory.dnsName, memory.dnsZone, err)
@@ -216,8 +142,6 @@ func (s *DNS01Solver) CleanUp(_ context.Context, challenge acme.Challenge) error
 
 	return nil
 }
-
-const defaultDNSPropagationTimeout = 2 * time.Minute
 
 type dnsPresentMemory struct {
 	dnsZone string

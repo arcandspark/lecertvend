@@ -80,6 +80,7 @@ func NewCertVendingMachine(zone string, contact string, cfToken string, leKey *e
 
 	cvm.solver = &DNS01Solver{
 		DNSProvider: &cloudflare.Provider{APIToken: cvm.cfToken},
+		Zone:        cvm.zone,
 	}
 
 	return cvm, nil
@@ -145,11 +146,13 @@ func (cvm CertVendingMachine) VendCert(names []string) (CertKeyPair, error) {
 	if err != nil {
 		return ckp, fmt.Errorf("error issuing cert: %w", err)
 	}
-	for i, _ := range certs {
-		fmt.Printf("Certs entry %v:\n", i)
-		fmt.Println(certs[i].URL)
-		fmt.Println(certs[i].ChainPEM)
+	if len(certs) == 0 {
+		return ckp, fmt.Errorf("no certs and no error returned from ACME client ¯\\_(ツ)_/¯")
 	}
+	// I just expect the first cert entry to contain the full chain
+	// The other option here would be to parse all the chains and make sure one of them
+	// starts with the requested subject's cert
+	ckp.CertChainPEM = certs[0].ChainPEM
 
 	return ckp, nil
 }
