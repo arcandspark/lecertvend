@@ -2,12 +2,12 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"lecertvend"
 	"os"
 	"strings"
-	"time"
 )
 
 //go:embed usage.txt
@@ -20,6 +20,12 @@ func exitWithUsage(msg string) {
 	os.Exit(1)
 }
 
+type LECertVend struct {
+	cs   lecertvend.CertStorage
+	cvm  lecertvend.CertVendingMachine
+	zone string
+}
+
 func main() {
 	// Invocation Modes:
 	// vend  - Issue a certificate for a particular DNS name, or renew it
@@ -28,13 +34,13 @@ func main() {
 
 	var vend, renew bool
 	var mindays int
-	var mount, prefix, cert, namesRaw string
+	var mount, prefix, secret, namesRaw string
 	flag.BoolVar(&vend, "vend", false, "Vend a single certificate")
 	flag.BoolVar(&renew, "renew", false, "Renew all certs in a prefix")
 	flag.IntVar(&mindays, "mindays", 30, "Renew certs expiring in this many or fewer days")
 	flag.StringVar(&mount, "mount", "", "Vault kv2 secret engine mount location")
 	flag.StringVar(&prefix, "prefix", "", "Vault path prefix for DNS domain")
-	flag.StringVar(&cert, "cert", "", "Vault secret name in which to store cert chain and key")
+	flag.StringVar(&secret, "secret", "", "Vault secret name in which to store cert chain and key")
 	flag.StringVar(&namesRaw, "names", "", "Comma separated list of host names for which to gen a cert")
 	flag.Parse()
 
@@ -47,8 +53,8 @@ func main() {
 	if prefix == "" {
 		exitWithUsage("ERROR: -prefix must be specified")
 	}
-	if vend && cert == "" {
-		exitWithUsage("ERROR: -cert must be specified with -vend")
+	if vend && secret == "" {
+		exitWithUsage("ERROR: -secret must be specified with -vend")
 	}
 	if vend && namesRaw == "" {
 		exitWithUsage("ERROR: -names must be specified with -vend")
@@ -57,18 +63,50 @@ func main() {
 	// Strip leading and trailing slashes off prefix
 	strings.Trim(prefix, "/")
 
-	certStorage, err := lecertvend.NewCertStorage(mount, prefix)
+	var lecv LECertVend
+	var err error
+	lecv.cs, err = lecertvend.NewCertStorage(mount, prefix)
 	if err != nil {
 		exitWithUsage(err.Error())
 	}
+	lecv.zone, err = lecertvend.DomainFromPrefix(prefix)
+	if err != nil {
+		exitWithUsage(fmt.Sprintf("could not determine domain from -prefix: %v", prefix))
+	}
+	lecv.cvm, err = lecertvend.NewCertVendingMachine(lecv.zone, lecv.cs.Contact(),
+		lecv.cs.CFToken(), lecv.cs.LEKey())
+	if err != nil {
+		exitWithUsage(fmt.Sprintf("error creating CertVendingMachine: %v", err))
+	}
 
-	secretPath := "lecertmgmt/gurp/omt.cx/auth1"
-	certList, err := certStorage.GetCerts(secretPath)
+	if vend {
+		err = lecv.Vend(prefix, secret, namesRaw)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	}
 
-	fmt.Printf("Subject: %v\n", certList[0].Subject.CommonName)
-	notAfter := certList[0].NotAfter
-	remaining := notAfter.Sub(time.Now())
-	remDays := int(remaining.Hours() / 24)
-	fmt.Printf("Cert remaining days: %v\n", remDays)
+	os.Exit(0)
+}
 
+func (l LECertVend) Vend(prefix string, secret string, namesRaw string) error {
+	secPath := prefix + "/" + secret
+	fmt.Println(prefix)
+	fmt.Println(secPath)
+	_ /*certs*/, err := l.cs.GetCerts(secPath)
+	if err != nil {
+		var sge *lecertvend.SecretGetError
+		if errors.As(err, &sge) && sge.NotFound {
+			fmt.Printf("No existing cert at %v\n", secPath)
+		} else {
+			return err
+		}
+	}
+	names := strings.Split(namesRaw, ",")
+	_, err = l.cvm.VendCert(names)
+	if err != nil {
+		return err
+	}
+	return nil
 }
