@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	vault "github.com/hashicorp/vault/api"
 	"strings"
@@ -31,39 +30,6 @@ func (cs CertStorage) Contact() string {
 
 func (cs CertStorage) LEKey() *ecdsa.PrivateKey {
 	return cs.leKey
-}
-
-func decodePEMECKey(pemData []byte) (*ecdsa.PrivateKey, error) {
-	if len(pemData) == 0 {
-		return nil, fmt.Errorf("pem data was empty")
-	}
-
-	b, _ := pem.Decode(pemData)
-	if b == nil {
-		return nil, fmt.Errorf("no PEM blocks in pemData, expected one for PRIVATE KEY")
-	}
-	if b.Type != "PRIVATE KEY" {
-		return nil, fmt.Errorf("first PEM block of type %v, expected type PRIVATE KEY", b.Type)
-	}
-
-	privKey, err := x509.ParseECPrivateKey(b.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing private key: %v", err)
-	}
-
-	return privKey, nil
-}
-
-func encodePEMECKey(key *ecdsa.PrivateKey) ([]byte, error) {
-	x509bytes, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling key: %v", err)
-	}
-	b := pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: x509bytes,
-	}
-	return pem.EncodeToMemory(&b), nil
 }
 
 type SecretGetError struct {
@@ -155,7 +121,7 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 	// leKey is optional, generate it if not present
 	leKey, ok := sec.Data["leKey"].(string)
 	if ok && len(leKey) > 0 {
-		cs.leKey, err = decodePEMECKey([]byte(leKey))
+		cs.leKey, err = DecodePEMECKey([]byte(leKey))
 		if err != nil {
 			return cs, fmt.Errorf("error decoding leKey value from %v: %v", lecvPath, err)
 		}
@@ -164,7 +130,7 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 		if err != nil {
 			return cs, fmt.Errorf("error generating EC key: %v", err)
 		}
-		newKeyBytes, err := encodePEMECKey(cs.leKey)
+		newKeyBytes, err := EncodePEMECKey(cs.leKey)
 		if err != nil {
 			return cs, fmt.Errorf("generated new leKey, but failed to PEM encode it: %v", err)
 		}
@@ -216,31 +182,6 @@ func (cs CertStorage) List(prefix string) []string {
 	return contents
 }
 
-func getCertPEMString(secret *vault.KVSecret) (string, error) {
-	certPEM, ok := secret.Data["cert"].(string)
-	if !ok {
-		return "", fmt.Errorf("secret \"cert\" key is missing or not a string")
-	}
-	if len(certPEM) == 0 {
-		return "", fmt.Errorf("secret \"cert\" key is empty")
-	}
-
-	return certPEM, nil
-}
-
-func decodeCerts(pemBytes []byte, certList []*x509.Certificate) ([]*x509.Certificate, error) {
-	p, rest := pem.Decode(pemBytes)
-	if p == nil {
-		return certList, nil
-	} else {
-		cert, err := x509.ParseCertificate(p.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing cert: %v", err)
-		}
-		return decodeCerts(rest, append(certList, cert))
-	}
-}
-
 // GetCerts returns parsed certificates from a secret in the vault.
 //
 // The order of the returned slice will be such that the cert at index 0 will be the first
@@ -262,10 +203,14 @@ func (cs CertStorage) GetCerts(path string) ([]*x509.Certificate, error) {
 		return nil, fmt.Errorf("error getting cert PEM data: %w", err)
 	}
 
-	certList, err = decodeCerts([]byte(certPEM), certList)
+	certList, err = DecodeCerts([]byte(certPEM), certList)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding certs at %v: %w", path, err)
 	}
 
 	return certList, nil
+}
+
+func (cs CertStorage) PutCerts(path string, certPEM []byte, keyPem []byte) error {
+	return nil
 }

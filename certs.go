@@ -3,6 +3,8 @@ package lecertvend
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
 	"fmt"
 	"github.com/libdns/cloudflare"
@@ -128,6 +130,25 @@ func (cvm CertVendingMachine) VendCert(names []string) (CertKeyPair, error) {
 			// Something went wrong
 			return ckp, fmt.Errorf("error getting account: %w", err)
 		}
+	}
+
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return ckp, fmt.Errorf("error generating private key for new cert: %w", err)
+	}
+	ckp.PrivKeyPEM, err = EncodePEMECKey(privKey)
+	if err != nil {
+		return ckp, fmt.Errorf("error PEM encoding private key: %w", err)
+	}
+
+	certs, err := ac.ObtainCertificate(context.Background(), account, privKey, fqdnList)
+	if err != nil {
+		return ckp, fmt.Errorf("error issuing cert: %w", err)
+	}
+	for i, _ := range certs {
+		fmt.Printf("Certs entry %v:\n", i)
+		fmt.Println(certs[i].URL)
+		fmt.Println(certs[i].ChainPEM)
 	}
 
 	return ckp, nil
