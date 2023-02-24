@@ -1,0 +1,9 @@
+stages:
+  - build
+
+build_lecv:
+  stage: build
+  script:
+    - docker run --rm -v $CI_PROJECT_DIR:/lecertvend -w /lecertvend -e XUID=$UID reg.omt.cx/golang:1.19.2-alpine sh build.sh
+  artifacts:
+    - lecertvend
