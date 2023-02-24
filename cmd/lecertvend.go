@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/x509"
 	_ "embed"
 	"errors"
 	"flag"
@@ -126,7 +127,16 @@ func (l LECertVend) Vend(mindays int, prefix string, secret string, namesRaw str
 					secPath, remDays, mindays)
 				doIssue = true
 			} else {
-				fmt.Printf("Cert at %v has %v days validity remaining, taking no action.\n", secPath, remDays)
+				fmt.Printf("Cert at %v has %v days validity remaining.\n", secPath, remDays)
+			}
+			namesFromCert, err := lecertvend.NamesFromCert(certs[0], prefix)
+			if err != nil {
+				return fmt.Errorf("error getting DNS names from existing certificate at %v: %w", secPath, err)
+			}
+			if namesFromCert != namesRaw {
+				fmt.Printf("Cert names '%v' does not exactly match -names '%v'\n", namesFromCert, namesRaw)
+				fmt.Println("Issuing new certificate with requested names...")
+				doIssue = true
 			}
 		}
 	}
@@ -141,4 +151,17 @@ func (l LECertVend) Vend(mindays int, prefix string, secret string, namesRaw str
 		fmt.Printf("Newly issued certificate and key written to %v\n", secPath)
 	}
 	return nil
+}
+
+func PrintCertInfo(cert *x509.Certificate, prefix string) {
+	fmt.Printf("Subject CN: '%v'\n\n", cert.Subject.CommonName)
+	fmt.Printf("Number of DNS names: %v\n", len(cert.DNSNames))
+	for _, n := range cert.DNSNames {
+		fmt.Printf("DNS Name: %v\n", n)
+	}
+	nameList, err := lecertvend.NamesFromCert(cert, prefix)
+	if err != nil {
+		fmt.Printf("error creating nameList: %v\n", err)
+	}
+	fmt.Printf("nameList: '%v'\n", nameList)
 }

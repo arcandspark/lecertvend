@@ -15,6 +15,7 @@ import (
 )
 
 const LEProductionEndpoint = "https://acme-v02.api.letsencrypt.org/directory"
+const LEStagingEndpoint = "https://acme-staging-v02.api.letsencrypt.org/directory"
 
 func CertValidDaysRemaining(cert *x509.Certificate) int {
 	remDur := cert.NotAfter.Sub(time.Now())
@@ -40,6 +41,37 @@ func DomainFromPrefix(prefix string) (string, error) {
 	}
 
 	return domain, nil
+}
+
+// NamesFromCert returns a comma separated list of host part names given a certificate.
+//
+// This returns the name list exactly how it would be given to lecertvend on the command
+// line in the -names flag, and so this output can be passed directly to Vend()
+func NamesFromCert(cert *x509.Certificate, prefix string) (string, error) {
+	var nameList []string
+	if cert == nil {
+		return "", fmt.Errorf("cert was nil")
+	}
+	domain, err := DomainFromPrefix(prefix)
+	if err != nil {
+		return "", fmt.Errorf("error getting domain from prefix: %w", err)
+	}
+
+	for _, v := range cert.DNSNames {
+		if v == domain {
+			nameList = append(nameList, ".")
+		} else {
+			if !strings.HasSuffix(v, "."+domain) {
+				return "", fmt.Errorf("cert name %v does not have domain part %v", v, domain)
+			}
+			if len(v) <= len(domain)+1 {
+				return "", fmt.Errorf("host part of %v is empty", v)
+			}
+			nameList = append(nameList, v[0:len(v)-len(domain)-1])
+		}
+	}
+
+	return strings.Join(nameList, ","), nil
 }
 
 type CertKeyPair struct {
