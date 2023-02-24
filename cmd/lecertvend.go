@@ -33,11 +33,12 @@ func main() {
 	// if it already exists and is aging
 	// renew - Examine each certificate in a vault prefix and renew it if it is aging
 
-	var vend, renew bool
+	var vend, renew, staging bool
 	var mindays int
 	var mount, prefix, secret, namesRaw string
 	flag.BoolVar(&vend, "vend", false, "Vend a single certificate")
 	flag.BoolVar(&renew, "renew", false, "Renew all certs in a prefix")
+	flag.BoolVar(&staging, "staging", false, "Use Let's Encrypt staging endpoint")
 	flag.IntVar(&mindays, "mindays", 30, "Renew certs expiring in this many or fewer days")
 	flag.StringVar(&mount, "mount", "", "Vault kv2 secret engine mount location")
 	flag.StringVar(&prefix, "prefix", "", "Vault path prefix for DNS domain")
@@ -78,6 +79,9 @@ func main() {
 		lecv.cs.CFToken(), lecv.cs.LEKey())
 	if err != nil {
 		exitWithUsage(fmt.Sprintf("error creating CertVendingMachine: %v", err))
+	}
+	if staging {
+		lecv.cvm.ACMEEndpoint = lecertvend.LEStagingEndpoint
 	}
 
 	if vend {

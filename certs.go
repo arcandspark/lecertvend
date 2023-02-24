@@ -80,15 +80,17 @@ type CertKeyPair struct {
 }
 
 type CertVendingMachine struct {
-	zone    string
-	contact string
-	cfToken string
-	leKey   *ecdsa.PrivateKey
-	solver  *DNS01Solver
+	zone         string
+	contact      string
+	cfToken      string
+	leKey        *ecdsa.PrivateKey
+	solver       *DNS01Solver
+	ACMEEndpoint string
 }
 
 func NewCertVendingMachine(zone string, contact string, cfToken string, leKey *ecdsa.PrivateKey) (CertVendingMachine, error) {
 	var cvm CertVendingMachine
+	cvm.ACMEEndpoint = LEProductionEndpoint
 
 	if len(zone) == 0 {
 		return cvm, fmt.Errorf("zone must be provided")
@@ -135,7 +137,7 @@ func (cvm CertVendingMachine) VendCert(names []string) (CertKeyPair, error) {
 
 	ac := acmez.Client{
 		Client: &acme.Client{
-			Directory: LEProductionEndpoint,
+			Directory: cvm.ACMEEndpoint,
 		},
 		ChallengeSolvers: map[string]acmez.Solver{
 			acme.ChallengeTypeDNS01: cvm.solver,
