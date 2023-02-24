@@ -16,7 +16,7 @@ Common Options:
            point, or the data/ prefix.
            The last component of the prefix is presumed to be the DNS domain
            name for which certs will be vended.
-  -cert    The secret name for the cert. This is usually the host name, but is
+  -secret  The secret name for the cert. This is usually the host name, but is
            provided explicitly for clearer naming for bare domain certs or
            certs with many SANs.
 
@@ -34,7 +34,7 @@ Examples:
 
 Issue or renew the cert for example.com and www.example.com:
 lecertvend -vend -names www,. \
-  -mount secret -prefix lecertmgmt/demoteam/example.com -cert www
+  -mount secret -prefix lecertmgmt/demoteam/example.com -secret www
 
 Renew all certs in the Vault for example.com:
 lecertvend -renew -mount secret -prefix lecertmgmt/demoteam
