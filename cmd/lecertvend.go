@@ -21,10 +21,27 @@ func exitWithUsage(msg string) {
 	os.Exit(1)
 }
 
-type LECertVend struct {
+type ZoneCertIssuer struct {
 	cs   lecertvend.CertStorage
 	cvm  lecertvend.CertVendingMachine
 	zone string
+}
+
+func NewZoneCertIssuer(zone string, cs lecertvend.CertStorage, staging bool) (ZoneCertIssuer, error) {
+	var zci ZoneCertIssuer
+	var err error
+	zci.cs = cs
+	zci.zone = zone
+
+	zci.cvm, err = lecertvend.NewCertVendingMachine(zci.zone, zci.cs.Contact(),
+		zci.cs.CFToken(), zci.cs.LEKey())
+	if err != nil {
+		return zci, fmt.Errorf("error creating CertVendingMachine: %w", err)
+	}
+	if staging {
+		zci.cvm.ACMEEndpoint = lecertvend.LEStagingEndpoint
+	}
+	return zci, nil
 }
 
 func main() {
@@ -65,31 +82,30 @@ func main() {
 	// Strip leading and trailing slashes off prefix
 	strings.Trim(prefix, "/")
 
-	var lecv LECertVend
-	var err error
-	lecv.cs, err = lecertvend.NewCertStorage(mount, prefix)
+	// Initialize the cert storage, this will get Let's Encrypt and CloudFlare
+	// creds from the Vault
+	cs, err := lecertvend.NewCertStorage(mount, prefix)
 	if err != nil {
 		exitWithUsage(err.Error())
 	}
-	lecv.zone, err = lecertvend.DomainFromPrefix(prefix)
-	if err != nil {
-		exitWithUsage(fmt.Sprintf("could not determine domain from -prefix: %v", prefix))
-	}
-	lecv.cvm, err = lecertvend.NewCertVendingMachine(lecv.zone, lecv.cs.Contact(),
-		lecv.cs.CFToken(), lecv.cs.LEKey())
-	if err != nil {
-		exitWithUsage(fmt.Sprintf("error creating CertVendingMachine: %v", err))
-	}
-	if staging {
-		lecv.cvm.ACMEEndpoint = lecertvend.LEStagingEndpoint
-	}
 
 	if vend {
-		err = lecv.Vend(mindays, prefix, secret, namesRaw)
+		// VEND COMMAND
+		zone, err := lecertvend.DomainFromPrefix(prefix)
+		if err != nil {
+			exitWithUsage(fmt.Sprintf("could not determine domain from -prefix: %v", prefix))
+		}
+		zci, err := NewZoneCertIssuer(zone, cs, staging)
+		if err != nil {
+			exitWithUsage(err.Error())
+		}
+		err = zci.Vend(mindays, prefix, secret, namesRaw)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
+	} else if renew {
+		// RENEW COMMAND
 	}
 
 	os.Exit(0)
@@ -101,15 +117,12 @@ func main() {
 // If there is a certificate at that secret path already, and it has >= mindays of validity,
 // that cert will not be updated. Otherwise, a new cert will be issued with all of namesRaw
 // as SANs on the new cert.
-//
-// **WARNING**, This function does not check to see that the requested names match the SANs
-// on an existing certificate. So, if the certificate exists and has >= mindays of
-// validity, but the SANs on the existing cert do not match the requested names, no
-// error will be indicated.
-func (l LECertVend) Vend(mindays int, prefix string, secret string, namesRaw string) error {
+func (z ZoneCertIssuer) Vend(mindays int, prefix string, secret string, namesRaw string) error {
+	fmt.Printf("Vending cert for %v.%v\n", namesRaw, z.zone)
+
 	secPath := prefix + "/" + secret
 	doIssue := false
-	certs, err := l.cs.GetCerts(secPath)
+	certs, err := z.cs.GetCerts(secPath)
 	if err != nil {
 		var sge *lecertvend.SecretGetError
 		if errors.As(err, &sge) && sge.NotFound {
@@ -147,13 +160,18 @@ func (l LECertVend) Vend(mindays int, prefix string, secret string, namesRaw str
 
 	if doIssue {
 		names := strings.Split(namesRaw, ",")
-		ckp, err := l.cvm.VendCert(names)
+		ckp, err := z.cvm.VendCert(names)
 		if err != nil {
 			return err
 		}
-		l.cs.PutCerts(secPath, ckp.CertChainPEM, ckp.PrivKeyPEM)
+		z.cs.PutCerts(secPath, ckp.CertChainPEM, ckp.PrivKeyPEM)
 		fmt.Printf("Newly issued certificate and key written to %v\n", secPath)
 	}
+	return nil
+}
+
+func (z ZoneCertIssuer) Renew(mindays int, prefix string) error {
+	fmt.Printf("Renewing certs in prefix %v if less than %v days validity remain.\n", prefix, mindays)
 	return nil
 }
 
