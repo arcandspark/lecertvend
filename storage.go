@@ -14,7 +14,6 @@ import (
 type CertStorage struct {
 	vcli    *vault.Client
 	mount   string
-	prefix  string
 	cfToken string
 	contact string
 	leKey   *ecdsa.PrivateKey
@@ -79,7 +78,6 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 		return cs, fmt.Errorf("prefix cannot be empty")
 	}
 	cs.mount = mount
-	cs.prefix = prefix
 
 	// Read the lecertvend secret from the prefix path. Depending on if this is a vend or a
 	// renew, the lecertvend secret will either be at the prefix location, or one level
