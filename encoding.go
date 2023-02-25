@@ -35,7 +35,7 @@ func EncodePEMECKey(key *ecdsa.PrivateKey) ([]byte, error) {
 		return nil, fmt.Errorf("error marshalling key: %v", err)
 	}
 	b := pem.Block{
-		Type:  "PRIVATE KEY",
+		Type:  "EC PRIVATE KEY",
 		Bytes: x509bytes,
 	}
 	return pem.EncodeToMemory(&b), nil
