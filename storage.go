@@ -11,6 +11,37 @@ import (
 	"strings"
 )
 
+type SecretGetError struct {
+	Inner    error
+	NotFound bool
+}
+
+func SecretGetErrorWrap(err error) *SecretGetError {
+	sge := &SecretGetError{
+		Inner:    err,
+		NotFound: false,
+	}
+	if strings.Contains(err.Error(), "secret not found") {
+		sge.NotFound = true
+	}
+	return sge
+}
+
+// GetSecretString returns the requested key from a secret as a string,
+// and also a bool indicating true if the value was present and could be
+// asserted to be a string.
+func GetSecretString(data map[string]interface{}, key string) (string, bool) {
+	val, ok := data[key]
+	if !ok {
+		return "", false
+	}
+	str, ok := val.(string)
+	if !ok {
+		return "", false
+	}
+	return str, true
+}
+
 type CertStorage struct {
 	vcli    *vault.Client
 	mount   string
@@ -29,22 +60,6 @@ func (cs CertStorage) Contact() string {
 
 func (cs CertStorage) LEKey() *ecdsa.PrivateKey {
 	return cs.leKey
-}
-
-type SecretGetError struct {
-	Inner    error
-	NotFound bool
-}
-
-func NewSecretGetError(err error) *SecretGetError {
-	sge := &SecretGetError{
-		Inner:    err,
-		NotFound: false,
-	}
-	if strings.Contains(err.Error(), "secret not found") {
-		sge.NotFound = true
-	}
-	return sge
 }
 
 func (e *SecretGetError) Error() string {
@@ -94,11 +109,13 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 			if err != nil {
 				return cs, fmt.Errorf("unable to locate lecertvend secret at %v or %v: %v", prefix, parentPrefix, err)
 			}
+		} else {
+			return cs, fmt.Errorf("unable to locate lecertvend secret at %v: %v", prefix, err)
 		}
 	}
 
 	// If we found a lecertvend secret, validate the contents
-	cfToken, ok := sec.Data["cfToken"].(string)
+	cfToken, ok := GetSecretString(sec.Data, "cfToken")
 	if !ok {
 		return cs, fmt.Errorf("%v does not contain \"cfToken\" key, or value is not a string", lecvPath)
 	}
@@ -107,7 +124,7 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 	}
 	cs.cfToken = cfToken
 
-	contact, ok := sec.Data["contact"].(string)
+	contact, ok := GetSecretString(sec.Data, "contact")
 	if !ok {
 		return cs, fmt.Errorf("%v does not contain \"contact\" key, or value is not a string", lecvPath)
 	}
@@ -117,7 +134,7 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 	cs.contact = contact
 
 	// leKey is optional, generate it if not present
-	leKey, ok := sec.Data["leKey"].(string)
+	leKey, ok := GetSecretString(sec.Data, "leKey")
 	if ok && len(leKey) > 0 {
 		cs.leKey, err = DecodePEMECKey([]byte(leKey))
 		if err != nil {
@@ -146,10 +163,13 @@ func NewCertStorage(mount string, prefix string) (CertStorage, error) {
 func (cs CertStorage) getSecret(path string) (*vault.KVSecret, error) {
 	sec, err := cs.vcli.KVv2(cs.mount).Get(context.Background(), path)
 	if err != nil {
-		return nil, NewSecretGetError(err)
+		return nil, SecretGetErrorWrap(err)
+	}
+	if sec == nil {
+		return nil, &SecretGetError{Inner: fmt.Errorf("secret not found: %v", path), NotFound: true}
 	}
 	if sec.Data == nil {
-		return nil, NewSecretGetError(fmt.Errorf("secret not found: secret at %v is deleted", path))
+		return nil, &SecretGetError{Inner: fmt.Errorf("secret not found: secret at %v is deleted", path), NotFound: true}
 	}
 	return sec, nil
 }
@@ -174,13 +194,15 @@ func (cs CertStorage) patchSecret(path string, newData map[string]interface{}) e
 // The prefix should be given as used in the CLI, this function takes care
 // of mapping it to the correct API path.
 func (cs CertStorage) List(prefix string) []string {
-	contents := []string{}
+	var contents []string
 	secs, err := cs.vcli.Logical().List(cs.mount + "/metadata/" + prefix)
-	if err == nil {
-		if keyList, ok := secs.Data["keys"].([]interface{}); ok {
-			for _, v := range keyList {
-				if sv, ok := v.(string); ok {
-					contents = append(contents, sv)
+	if err == nil && secs != nil {
+		if keys, ok := secs.Data["keys"]; ok {
+			if keyList, ok := keys.([]interface{}); ok {
+				for _, v := range keyList {
+					if sv, ok := v.(string); ok {
+						contents = append(contents, sv)
+					}
 				}
 			}
 		}
