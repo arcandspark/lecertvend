@@ -16,9 +16,6 @@ Common Options:
            point, or the data/ prefix.
            The last component of the prefix is presumed to be the DNS domain
            name for which certs will be vended.
-  -secret  The secret name for the cert. This is usually the host name, but is
-           provided explicitly for clearer naming for bare domain certs or
-           certs with many SANs.
 
 Options for -vend:
   -names   A comma separated list of host names for which to issue a
@@ -26,6 +23,9 @@ Options for -vend:
            certificate.
            A dot (.) by itself is interpreted as a request to issue the
            certificate for the bare DNS name.
+  -secret  The secret name for the cert. This is usually the host name, but is
+           provided explicitly for clearer naming for bare domain certs or
+           certs with many SANs.
 
 Options for -renew:
   None

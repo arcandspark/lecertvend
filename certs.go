@@ -22,10 +22,10 @@ func CertValidDaysRemaining(cert *x509.Certificate) int {
 	return int(remDur.Hours() / 24)
 }
 
-// DomainFromPrefix will extract the DNS domain name from the Vault secret prefix
+// ZoneFromPrefix will extract the DNS domain name from the Vault secret prefix
 // provided by the caller. Minor validation is done to make sure it looks a little
 // like a DNS domain.
-func DomainFromPrefix(prefix string) (string, error) {
+func ZoneFromPrefix(prefix string) (string, error) {
 	prefixParts := strings.Split(prefix, "/")
 	prefixPartCount := len(prefixParts)
 	if prefixPartCount < 2 {
@@ -47,27 +47,22 @@ func DomainFromPrefix(prefix string) (string, error) {
 //
 // This returns the name list exactly how it would be given to lecertvend on the command
 // line in the -names flag, and so this output can be passed directly to Vend()
-func NamesFromCert(cert *x509.Certificate, prefix string) (string, error) {
+func NamesFromCert(cert *x509.Certificate, zone string) (string, error) {
 	var nameList []string
 	if cert == nil {
 		return "", fmt.Errorf("cert was nil")
 	}
-	domain, err := DomainFromPrefix(prefix)
-	if err != nil {
-		return "", fmt.Errorf("error getting domain from prefix: %w", err)
-	}
-
 	for _, v := range cert.DNSNames {
-		if v == domain {
+		if v == zone {
 			nameList = append(nameList, ".")
 		} else {
-			if !strings.HasSuffix(v, "."+domain) {
-				return "", fmt.Errorf("cert name %v does not have domain part %v", v, domain)
+			if !strings.HasSuffix(v, "."+zone) {
+				return "", fmt.Errorf("cert name %v does not have zone part %v", v, zone)
 			}
-			if len(v) <= len(domain)+1 {
+			if len(v) <= len(zone)+1 {
 				return "", fmt.Errorf("host part of %v is empty", v)
 			}
-			nameList = append(nameList, v[0:len(v)-len(domain)-1])
+			nameList = append(nameList, v[0:len(v)-len(zone)-1])
 		}
 	}
 
